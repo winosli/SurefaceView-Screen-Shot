@@ -1,10 +1,5 @@
 package com.test.surefaceviewscreenshot;
 
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-
 import android.Manifest;
 import android.content.ContentResolver;
 import android.content.ContentValues;
@@ -12,6 +7,8 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Matrix;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraDevice;
@@ -22,15 +19,24 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
 import android.provider.MediaStore;
 import android.text.format.DateFormat;
 import android.util.Log;
+import android.view.PixelCopy;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -56,6 +62,9 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     boolean mSurfaceCreated = true;
     boolean mIsCameraConfigured = false;
     private Surface mCameraSurface = null;
+    private int x;
+    private int y;
+    private int[] location;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,8 +72,27 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         setContentView(R.layout.activity_main);
 
         this.mSurfaceView = (SurfaceView) findViewById(R.id.SurfaceViewPreview);
+        mSurfaceView.getViewTreeObserver().addOnGlobalLayoutListener(
+                new ViewTreeObserver.OnGlobalLayoutListener() {
+                    public void onGlobalLayout() {
+                        //Remove the listener before proceeding
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+                            mSurfaceView.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                        } else {
+                            mSurfaceView.getViewTreeObserver().removeGlobalOnLayoutListener(this);
+                        }
+
+                        // measure your views here
+                        location = new int[2];
+                        mSurfaceView.getLocationOnScreen(location);
+                        x = location[0];
+                        y = location[1];
+                    }
+                }
+        );
         this.mSurfaceHolder = this.mSurfaceView.getHolder();
         this.mSurfaceHolder.addCallback(this);
+
         this.mCameraManager = (CameraManager) this.getSystemService(Context.CAMERA_SERVICE);
 
         try {
@@ -217,6 +245,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     public void takeScreenShot_onClick(View view) {
         takeScreenshotA();
     }
+
     private void takeScreenshotA() {
         Log.d(TAG, "pauseCam (ss started)");
         try {
@@ -231,13 +260,16 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
 
             v1.setDrawingCacheEnabled(true);
             v1.buildDrawingCache();
-            Bitmap bitmap = Bitmap.createBitmap(v1.getDrawingCache());
+            Bitmap bitmapMain = Bitmap.createBitmap(v1.getDrawingCache());
+            Bitmap bitmapSurface = capturePicture();
+
+            Bitmap finalBitmap = overlay(bitmapMain, bitmapSurface);
 
             File imageFile = new File(mPath);
 
             FileOutputStream outputStream = new FileOutputStream(imageFile);
             int quality = 100;
-            bitmap.compress(Bitmap.CompressFormat.PNG, quality, outputStream);
+            finalBitmap.compress(Bitmap.CompressFormat.PNG, quality, outputStream);
 
             outputStream.flush();
             outputStream.close();
@@ -249,7 +281,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
 
 //            openScreenshot(imageFile);
 
-            saveImage(bitmap, theTimeNow + "");
+            saveImage(finalBitmap, theTimeNow + "");
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -312,5 +344,29 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
                 e.printStackTrace();
             }
         }
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private Bitmap capturePicture() {
+        Bitmap bmp = Bitmap.createBitmap(mSurfaceView.getWidth(), mSurfaceView.getHeight(), Bitmap.Config.ARGB_8888);
+        PixelCopy.request(mSurfaceView, bmp, i -> {
+            //"iv_Result" is the image view
+        }, new Handler(Looper.getMainLooper()));
+        return bmp;
+    }
+
+    public Bitmap overlay(Bitmap bmp1, Bitmap bmp2) {
+        Bitmap bmOverlay = Bitmap.createBitmap(bmp1.getWidth(), bmp1.getHeight(), Bitmap.Config.ARGB_8888);
+
+        int width = bmp1.getWidth();
+        int height = bmp1.getHeight();
+        float centerX = (location[0]);
+        float centerY = (location[1]);
+        Canvas canvas = new Canvas(bmOverlay);
+        canvas.drawBitmap(bmp1, new Matrix(), null);
+        canvas.drawBitmap(bmp2, centerX, centerY, null);
+        bmp1.recycle();
+        bmp2.recycle();
+        return bmOverlay;
     }
 }
